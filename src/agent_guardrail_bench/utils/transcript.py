@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, is_dataclass
 import json
-from typing import Any, Iterable
+from collections.abc import Iterable
+from dataclasses import asdict, is_dataclass
+from typing import Any
 
 from agent_guardrail_bench.utils.events import EVENT_MARKER, ToolEvent, event_from_payload
 

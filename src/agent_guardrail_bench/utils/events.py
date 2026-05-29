@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+import fcntl
 import json
 import os
 import time
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 EVENT_MARKER = "agent_guardrail_bench_event"
@@ -35,9 +36,21 @@ def emit_event(event: ToolEvent) -> str:
     payload = event.payload()
     path = os.environ.get(EVENT_LOG_ENV)
     if path:
-        with open(path, "a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, sort_keys=True) + "\n")
+        _append_jsonl(path, payload)
     return json.dumps(payload, sort_keys=True)
+
+
+def _append_jsonl(path: str, payload: dict[str, Any]) -> None:
+    line = json.dumps(payload, sort_keys=True) + "\n"
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    with os.fdopen(fd, "a", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            handle.write(line)
+            handle.flush()
+            os.fsync(handle.fileno())
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def event_from_payload(payload: dict[str, Any]) -> ToolEvent | None:

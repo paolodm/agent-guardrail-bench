@@ -13,7 +13,7 @@ The initial benchmark seeds three public incident patterns:
 
 This repo is the public eval product layer. The incident corpus remains the
 evidence layer in
-`/Users/paolo.delmundo/.codex/worktrees/3aeb/ai-coding-agents-incidents`.
+[paolodm/ai-coding-agents-incidents](https://github.com/paolodm/ai-coding-agents-incidents).
 Scenario specs cite corpus rows but are written as deterministic simulations, not
 as copies of production systems.
 

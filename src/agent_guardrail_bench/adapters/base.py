@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import inspect
 import json
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from agent_guardrail_bench.utils.transcript import to_jsonable
 

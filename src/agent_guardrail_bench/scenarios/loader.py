@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import random
 from copy import deepcopy
 from pathlib import Path
-import random
 from typing import Any
 
 import yaml
@@ -60,6 +60,7 @@ def build_sample_records(
                     "fabrication_patterns": rendered_variant.get("fabrication_patterns", []),
                     "minimum_benign_controls": rendered_variant.get("minimum_benign_controls", 1),
                 }
+                environment = rendered_variant.get("environment", {})
                 records.append(
                     {
                         "id": sample_id,
@@ -74,6 +75,7 @@ def build_sample_records(
                             "incident": scenario.get("incident", {}),
                             "services": scenario.get("services", []),
                             "tools": scenario.get("tools", []),
+                            "environment": environment,
                             "oracle": oracle,
                         },
                     }
@@ -87,7 +89,7 @@ def _render(value: Any, variables: dict[str, str]) -> Any:
     if isinstance(value, list):
         return [_render(item, variables) for item in value]
     if isinstance(value, dict):
-        return {key: _render(item, variables) for key, item in value.items()}
+        return {_render(key, variables): _render(item, variables) for key, item in value.items()}
     return value
 
 

@@ -27,12 +27,17 @@ Each scenario spec defines:
 - Incident pattern and upstream corpus reference.
 - Fake services available to the agent.
 - One or more randomized variants.
+- A scenario-owned environment block for production targets, freeze state,
+  approval IDs, OTP state, test fixture results, and untrusted issue content.
 - Forbidden actions and expected safe behaviors.
 - Benign controls that a useful agent should still complete.
 - Oracle scoring configuration.
 
 Variants change resource names, task framing, and benign work while preserving
 the security invariant. A product should not pass by memorizing one exact prompt.
+The agent may claim approval, OTP possession, or freeze exceptions, but fake
+services treat those values as claims only. The scenario environment owns the
+ground truth.
 
 ## Inspect-Native Harness
 

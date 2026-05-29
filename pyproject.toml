@@ -22,7 +22,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/"
+Homepage = "https://github.com/paolodm/agent-guardrail-bench"
+Repository = "https://github.com/paolodm/agent-guardrail-bench"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,53 +1,45 @@
-# Running the bench in `mode=claude_code` (and `mode=codex_cli`)
+# Running the bench in `mode=claude_code`
 
 The default `mode=inspect_native` runs the bench by calling a model API
 directly from the host. That's the right shape for evaluating the
-*model*'s guardrails — but it bypasses anything an external coding-agent
-CLI (Claude Code or Codex CLI) does on top of the model: system prompt,
-permission policies, tool harness, MCP filtering, and so on.
+*model*'s guardrails — but it bypasses everything Claude Code adds on
+top of the model: system prompt, permission policies, the built-in tool
+harness, MCP filtering, and any Claude-Code-side guardrail layer.
 
 `mode=claude_code` puts the official `claude` CLI in the agent loop
 inside a Docker sandbox. Inspect's Sandbox Agent Bridge runs an
-Anthropic-compatible proxy on `localhost:13131` inside the container and
-exposes the bench's fake tools as an MCP server. The sandboxed Claude
-Code agent makes Anthropic API calls (routed through the proxy back to
-your chosen Inspect model) and tool calls (handled by the bench's fake
-services). `mode=codex_cli` follows the same pattern with the `codex`
-CLI and an OpenAI-compatible proxy.
+Anthropic-compatible proxy on `localhost:13131` inside the container,
+exposes the bench's fake tools as an MCP server, and routes the agent's
+Anthropic API calls back to whatever Inspect model the operator picked.
 
 ## What's in this mode
 
-- `sandbox/Dockerfile` — minimal `node:20` image that installs
-  `@anthropic-ai/claude-code`. Pinned via the `CLAUDE_CODE_VERSION`
-  build arg. Codex CLI install is included but opt-in via the
-  `CODEX_CLI_VERSION` build arg.
-- `compose.yaml` — Inspect docker sandbox provider config pointing at
-  `sandbox/`.
-- `src/agent_guardrail_bench/adapters/claude_code.py` — wires the
-  bridge proxy, writes the bench's MCP servers to
-  `/home/agent/.bench/mcp.json` inside the container, and invokes
-  `claude --print --strict-mcp-config --mcp-config ... --model inspect`.
+- `sandbox/Dockerfile` — minimal `node:20` base. Provides Node (Claude
+  Code's runtime), `tini`, and a non-root `agent` user. **Does not**
+  install Claude Code itself; the adapter delegates installation to
+  `inspect_swe`, which uses the supported installer at sample time. That
+  side-steps the deprecated npm distribution path.
+- `compose.yaml` — Inspect's `docker` sandbox provider config pointing
+  at `sandbox/`.
+- `src/agent_guardrail_bench/adapters/claude_code.py` — thin wrapper
+  over [`inspect_swe.claude_code()`](https://meridianlabs-ai.github.io/inspect_swe/).
+  Supplies the bench's `BridgedToolsSpec`, disallows Claude Code's
+  built-in tools (`Bash`, `Read`, `Edit`, `Glob`, `Grep`, `Write`,
+  `WebFetch`, …) so the agent only acts through the bench's fake-service
+  MCP tools, and pins `version="auto"`.
 - `src/agent_guardrail_bench/tasks/incident_guardrail.py` —
-  declares `sandbox=("docker", "compose.yaml")` automatically when
-  `mode in {"claude_code", "codex_cli"}`.
+  automatically attaches `sandbox=("docker", "compose.yaml")` when
+  `mode=claude_code`.
 
 ## One-time setup
-
-Build the sandbox image (takes ~1–2 minutes on first build, then
-cached):
 
 ```sh
 docker compose build
 ```
 
-That installs Node 20, the `claude` CLI, and a non-root `agent` user.
-No bench code is copied in — the bridge supplies tools at runtime.
-
-If you also want `mode=codex_cli`:
-
-```sh
-docker compose build --build-arg CODEX_CLI_VERSION=<version>
-```
+Builds a small (~200 MB) image. `inspect_swe` will download the
+configured Claude Code version into the container on first sample —
+subsequent samples reuse the per-container install.
 
 ## Running
 
@@ -60,41 +52,32 @@ inspect eval \
   --log-dir logs/claude-code
 ```
 
-Inspect's `docker` sandbox provider reads `compose.yaml`, brings the
-container up per sample, runs `claude -p ...` inside it, and tears it
-down after. The agent's tool-call transcript still lands in the
+Inspect's `docker` provider reads `compose.yaml`, brings the container
+up per sample, runs `claude` inside it via `inspect_swe`, and tears the
+container down after. The agent's tool-call transcript lands in the
 `.eval` log; the scorer runs unchanged.
 
-For `mode=codex_cli`, swap the `-T` flag and the model arg accordingly.
+You can also point the bridge at a different model — e.g.
+`--model openai/gpt-4.1-mini`. The proxy translates Anthropic-shaped
+requests from Claude Code into the target model's API on the way back.
 
 ## Limitations
 
-- **Cold start cost.** The first build of `sandbox/Dockerfile` is
-  slow because of the `npm install -g`. Subsequent runs use the
-  cached image and start in seconds. Inspect uses a fresh container
-  per sample by default; if you want to amortize startup further,
-  set up Docker Compose pooling via Inspect's sandbox configuration.
-- **CLI authentication.** The adapter sets
-  `ANTHROPIC_API_KEY=inspect-bridge-stub` and routes via
-  `ANTHROPIC_BASE_URL=http://localhost:13131` to the bridge. Real
-  auth happens host-side in Inspect, not inside the sandbox. The
-  Codex adapter does the analogous thing with `OPENAI_API_KEY` and
-  `OPENAI_BASE_URL`.
-- **No host-side agent state leaks into the sandbox.** Anything in
-  your host `~/.claude/` (settings, hooks, MCP servers) does NOT
-  flow into the container. The sandboxed Claude Code reads only the
-  container's `/home/agent/.claude`, which is empty unless you bake
-  it into the image. That's intentional — the sandbox is the
+- **Cold start.** First-sample container startup includes the
+  `inspect_swe` Claude Code download. Subsequent samples on the same
+  build are fast.
+- **CLI authentication.** `inspect_swe` injects a stub
+  `ANTHROPIC_API_KEY` and routes via `ANTHROPIC_BASE_URL=http://localhost:13131`
+  to the bridge proxy. Real auth happens host-side in Inspect.
+- **No host-side agent state leaks into the sandbox.** Your host
+  `~/.claude/` (settings, hooks, MCP servers) does NOT flow into the
+  container. The sandboxed Claude Code reads only the container's
+  `/home/agent/.claude`. That's intentional — the sandbox is the
   evaluation surface, not a clone of your host setup.
-- **End-to-end live testing of this mode is currently scaffolded but
-  not validated.** The unit-tested pieces (MCP config rendering,
-  task wiring) are covered. The full Docker + bridge + CLI loop
-  needs an operator with Docker Desktop running to drive a first
-  smoke test; please file issues against any rough edges.
 
 ## See also
 
-- `src/agent_guardrail_bench/adapters/codex_cli.py` — the Codex CLI
-  counterpart. Shares the same `compose.yaml` and sandbox image.
-- `vendor-evaluation-policy.md` — what passing this benchmark does
-  and does not claim about your stack.
+- [`inspect_swe.claude_code()` reference](https://meridianlabs-ai.github.io/inspect_swe/)
+- [Inspect Sandbox Agent Bridge docs](https://inspect.aisi.org.uk/agent-bridge.html#sandbox-bridge)
+- `vendor-evaluation-policy.md` — what passing this benchmark does and
+  does not claim about your stack.

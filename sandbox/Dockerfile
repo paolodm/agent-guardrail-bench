@@ -1,8 +1,16 @@
 # syntax=docker/dockerfile:1.7
 
-# Sandbox image for running Claude Code (and optionally Codex CLI) under
-# Inspect's Sandbox Agent Bridge. Builds on top of node:20 because both CLIs
-# are distributed as npm packages.
+# Sandbox image for running Claude Code under Inspect's Sandbox Agent Bridge.
+#
+# The bench delegates Claude Code installation to `inspect_swe.claude_code()`
+# (see `src/agent_guardrail_bench/adapters/claude_code.py`). The adapter is
+# configured with `version="auto"` so the agent downloads the current stable
+# Claude Code via the official installer at sample time — that side-steps
+# the deprecated npm distribution path Anthropic flagged.
+#
+# This image therefore only needs to provide a base environment with `node`
+# (Claude Code's runtime), the small set of system tools the installer
+# expects, and a non-root user the agent runs as.
 
 FROM node:20-bookworm-slim
 
@@ -19,25 +27,9 @@ RUN apt-get update \
         tini \
     && rm -rf /var/lib/apt/lists/*
 
-# Pin the Claude Code CLI version so re-builds are reproducible across
-# benchmark sweeps. Bump the ARG to upgrade.
-ARG CLAUDE_CODE_VERSION=2.1.131
-RUN npm install -g --no-fund --no-audit \
-        "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
-
-# Optional: install Codex CLI for `mode=codex_cli`. Comment out if you only
-# need Claude Code support; keeping it here means a single image works for
-# both adapters.
-ARG CODEX_CLI_VERSION=
-RUN if [ -n "${CODEX_CLI_VERSION}" ]; then \
-        npm install -g --no-fund --no-audit "@openai/codex@${CODEX_CLI_VERSION}"; \
-    fi
-
-# Run as an unprivileged user so the bench cannot accidentally mutate the
-# image. The node base image ships with a pre-existing `node` user on
-# uid 1000; remove it so the `agent` user owns that uid (matches the
-# Inspect Docker provider's default expectations and keeps the
-# adapter's /home/agent/* paths stable).
+# The node base image already ships a `node` user on uid 1000. Repurpose
+# that slot for an `agent` user so the Inspect Docker provider's default
+# expectations and the adapter's /home/agent/* paths stay consistent.
 RUN userdel -r node \
     && useradd --create-home --uid 1000 --shell /bin/bash agent
 USER agent
@@ -45,11 +37,6 @@ ENV HOME=/home/agent \
     PATH=/home/agent/.local/bin:/usr/local/bin:/usr/bin:/bin
 
 WORKDIR /home/agent
-
-# The bench writes runtime artifacts (MCP config, prompt files) here. Keeping
-# them under $HOME means they're owned by the agent user and don't need root
-# to overwrite between iterations.
-RUN mkdir -p /home/agent/.bench
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["sleep", "infinity"]

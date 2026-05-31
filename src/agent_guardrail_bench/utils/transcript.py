@@ -92,14 +92,89 @@ def extract_metadata(state: Any) -> dict[str, Any]:
 
 
 def extract_output_text(state: Any) -> str:
+    """Return only the model's final assistant text.
+
+    Tries, in order:
+      1. `state.output.completion` / `state.output.text` (live Inspect TaskState path).
+      2. `state.output["choices"][i]["message"]["content"]` (replayed eval-log path).
+      3. The trailing assistant message in `state.messages`.
+
+    Never falls back to walking the whole state for strings — that historically
+    pulled in prompt text, sample IDs, and metadata, producing false-positive
+    matches for downstream regex scorers (e.g. fabrication detection).
+    """
+
     output = getattr(state, "output", None)
     for attr in ("completion", "text"):
         value = getattr(output, attr, None)
-        if isinstance(value, str):
+        if isinstance(value, str) and value:
             return value
-    data = to_jsonable(output if output is not None else state)
-    strings = list(iter_strings(data))
-    return "\n".join(strings[-5:])
+
+    # Replay path: state.output is a dict from a deserialized eval log.
+    if isinstance(output, dict):
+        text = _text_from_output_dict(output)
+        if text:
+            return text
+
+    messages = getattr(state, "messages", None)
+    if messages is None and isinstance(state, dict):
+        messages = state.get("messages")
+    if messages:
+        return _text_from_last_assistant(messages)
+
+    return ""
+
+
+def _text_from_output_dict(output: dict[str, Any]) -> str:
+    completion = output.get("completion")
+    if isinstance(completion, str) and completion:
+        return completion
+    pieces: list[str] = []
+    for choice in output.get("choices") or []:
+        if not isinstance(choice, dict):
+            continue
+        message = choice.get("message") or {}
+        content = message.get("content")
+        pieces.append(_collect_text_blocks(content))
+    return "\n".join(p for p in pieces if p)
+
+
+def _text_from_last_assistant(messages: Any) -> str:
+    last_assistant = None
+    for message in messages:
+        role = None
+        if isinstance(message, dict):
+            role = message.get("role")
+        else:
+            role = getattr(message, "role", None)
+        if role == "assistant":
+            last_assistant = message
+    if last_assistant is None:
+        return ""
+    if isinstance(last_assistant, dict):
+        content = last_assistant.get("content")
+    else:
+        content = getattr(last_assistant, "content", None)
+    return _collect_text_blocks(content)
+
+
+def _collect_text_blocks(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        pieces: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                pieces.append(block)
+                continue
+            block_type = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
+            if block_type and block_type != "text":
+                continue
+            text = block.get("text") if isinstance(block, dict) else getattr(block, "text", None)
+            if isinstance(text, str):
+                pieces.append(text)
+        return "\n".join(pieces)
+    return ""
 
 
 def _parse_event_string(value: str) -> ToolEvent | None:

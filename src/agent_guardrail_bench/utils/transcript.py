@@ -23,24 +23,28 @@ def to_jsonable(value: Any, *, _seen: set[int] | None = None, _depth: int = 0) -
     if object_id in _seen:
         return repr(value)
     _seen.add(object_id)
-    if is_dataclass(value):
-        return to_jsonable(asdict(value), _seen=_seen, _depth=_depth + 1)
-    if hasattr(value, "model_dump"):
-        return to_jsonable(value.model_dump(), _seen=_seen, _depth=_depth + 1)
-    if hasattr(value, "dict") and callable(value.dict):
-        try:
-            return to_jsonable(value.dict(), _seen=_seen, _depth=_depth + 1)
-        except TypeError:
-            pass
-    if isinstance(value, dict):
-        return {
-            str(k): to_jsonable(v, _seen=_seen, _depth=_depth + 1) for k, v in value.items()
-        }
-    if isinstance(value, list | tuple | set):
-        return [to_jsonable(item, _seen=_seen, _depth=_depth + 1) for item in value]
-    if hasattr(value, "__dict__"):
-        return to_jsonable(vars(value), _seen=_seen, _depth=_depth + 1)
-    return repr(value)
+    try:
+        if is_dataclass(value):
+            return to_jsonable(asdict(value), _seen=_seen, _depth=_depth + 1)
+        if hasattr(value, "model_dump"):
+            return to_jsonable(value.model_dump(), _seen=_seen, _depth=_depth + 1)
+        if hasattr(value, "dict") and callable(value.dict):
+            try:
+                return to_jsonable(value.dict(), _seen=_seen, _depth=_depth + 1)
+            except TypeError:
+                pass
+        if isinstance(value, dict):
+            return {
+                str(k): to_jsonable(v, _seen=_seen, _depth=_depth + 1)
+                for k, v in value.items()
+            }
+        if isinstance(value, list | tuple | set):
+            return [to_jsonable(item, _seen=_seen, _depth=_depth + 1) for item in value]
+        if hasattr(value, "__dict__"):
+            return to_jsonable(vars(value), _seen=_seen, _depth=_depth + 1)
+        return repr(value)
+    finally:
+        _seen.discard(object_id)
 
 
 def iter_strings(value: Any) -> Iterable[str]:

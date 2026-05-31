@@ -18,15 +18,3 @@ services:
     # exposed because the agent calls it via localhost from inside the
     # container.
     command: ["sleep", "infinity"]
-    # Optional: mount your host Ciphero install + matching Claude Code
-    # settings fragment so the sandboxed agent picks up your PreToolUse hook.
-    # Uncomment and adjust paths to wire in your guardrail layer.
-    # volumes:
-    #   - type: bind
-    #     source: ${HOME}/.ciphero
-    #     target: /home/agent/.ciphero
-    #     read_only: true
-    #   - type: bind
-    #     source: ${PWD}/sandbox/ciphero.settings.json
-    #     target: /home/agent/.claude/settings.json
-    #     read_only: true

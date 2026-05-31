@@ -3,10 +3,6 @@
 # Sandbox image for running Claude Code (and optionally Codex CLI) under
 # Inspect's Sandbox Agent Bridge. Builds on top of node:20 because both CLIs
 # are distributed as npm packages.
-#
-# Extension points for guardrail products like Ciphero are documented at the
-# bottom of this file. They are intentionally NOT baked in by default — each
-# operator wires their own guardrail stack.
 
 FROM node:20-bookworm-slim
 
@@ -53,31 +49,3 @@ RUN mkdir -p /home/agent/.bench
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["sleep", "infinity"]
-
-# -----------------------------------------------------------------------------
-# Extension point: Ciphero (or any other PreToolUse guardrail)
-# -----------------------------------------------------------------------------
-# Ciphero is the operator's defensive layer; we keep it out of this image so
-# upstream can pin specific versions. Two ways to wire it in:
-#
-# 1) Volume-mount at runtime (recommended for local iteration). Edit
-#    ../compose.yaml and uncomment the `volumes:` section that bind-mounts
-#    your host ~/.ciphero and the matching settings.json fragment into the
-#    container's /home/agent. See ../docs/claude-code-mode.md.
-#
-# 2) Bake into the image (recommended for CI / shared sweeps). Add a layer
-#    here that COPYs your Ciphero install into /home/agent/.ciphero and
-#    writes the PreToolUse hook entry into /home/agent/.claude/settings.json.
-#    Example:
-#
-#        COPY --chown=agent:agent ciphero/ /home/agent/.ciphero/
-#        COPY --chown=agent:agent ciphero/settings.fragment.json /tmp/cf.json
-#        RUN mkdir -p /home/agent/.claude && \
-#            jq -s '.[0] * .[1]' /tmp/cf.json /home/agent/.claude/settings.json \
-#               > /home/agent/.claude/settings.json.new && \
-#            mv /home/agent/.claude/settings.json.new /home/agent/.claude/settings.json
-#
-# Either way, once Ciphero is in place inside the container its PreToolUse
-# hook will intercept every tool call that the sandboxed Claude Code agent
-# makes against the bench's fake tools — which is the integration this bench
-# is designed to surface.

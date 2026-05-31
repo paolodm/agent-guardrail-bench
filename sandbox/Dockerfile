@@ -34,8 +34,12 @@ RUN if [ -n "${CODEX_CLI_VERSION}" ]; then \
     fi
 
 # Run as an unprivileged user so the bench cannot accidentally mutate the
-# image. UID 1000 matches the Inspect Docker provider's default expectations.
-RUN useradd --create-home --uid 1000 --shell /bin/bash agent
+# image. The node base image ships with a pre-existing `node` user on
+# uid 1000; remove it so the `agent` user owns that uid (matches the
+# Inspect Docker provider's default expectations and keeps the
+# adapter's /home/agent/* paths stable).
+RUN userdel -r node \
+    && useradd --create-home --uid 1000 --shell /bin/bash agent
 USER agent
 ENV HOME=/home/agent \
     PATH=/home/agent/.local/bin:/usr/local/bin:/usr/bin:/bin

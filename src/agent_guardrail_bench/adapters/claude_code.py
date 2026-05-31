@@ -52,8 +52,6 @@ def claude_code_agent(
     """
 
     from inspect_ai.agent import (
-        Agent,
-        AgentState,
         BridgedToolsSpec,
         agent,
         sandbox_agent_bridge,
@@ -61,9 +59,16 @@ def claude_code_agent(
     from inspect_ai.model import user_prompt
     from inspect_ai.util import sandbox
 
+    # No return/parameter annotations: `@agent` (and Inspect's
+    # `parse_tool_info` when the agent is converted to a solver) run
+    # `get_type_hints()` over the wrapped function. The inspect_ai imports
+    # above are scoped to this enclosing function, so `Agent` / `AgentState`
+    # aren't reachable from the module globals that `get_type_hints` resolves
+    # against. Skipping the annotations sidesteps that without forcing
+    # inspect_ai onto the module's import-time path.
     @agent
-    def _claude_code_agent() -> Agent:
-        async def execute(state: AgentState) -> AgentState:
+    def _claude_code_agent():
+        async def execute(state):
             bridged_tools = [
                 BridgedToolsSpec(name="agent_guardrail_bench", tools=list(tools or []))
             ]

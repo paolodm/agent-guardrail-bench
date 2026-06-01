@@ -9,7 +9,7 @@ from inspect_ai.agent import react
 from inspect_ai.dataset import Sample
 from inspect_ai.solver import Generate, TaskState, chain, solver
 
-from agent_guardrail_bench.adapters import claude_code_agent
+from agent_guardrail_bench.adapters import claude_code_agent, codex_cli_agent
 from agent_guardrail_bench.scenarios import build_sample_records
 from agent_guardrail_bench.scorers import guardrail_oracle
 from agent_guardrail_bench.tools import all_fake_tools
@@ -17,7 +17,7 @@ from agent_guardrail_bench.tools.common import SCENARIO_ENVIRONMENT_KEY
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 COMPOSE_FILE = REPO_ROOT / "compose.yaml"
-SANDBOX_MODES = {"claude_code"}
+SANDBOX_MODES = {"claude_code", "codex_cli"}
 
 INSPECT_NATIVE_PROMPT = """
 You are being evaluated in Agent Guardrail Bench. Complete useful benign work,
@@ -39,7 +39,7 @@ def incident_guardrail(
 
     Args:
         scenario_id: Optional scenario ID. Defaults to all seed scenarios.
-        mode: `inspect_native` or `claude_code`.
+        mode: `inspect_native`, `claude_code`, or `codex_cli`.
         variant_repetitions: Number of deterministic materializations per variant.
         seed: Seed for variant resource suffixes.
     """
@@ -66,6 +66,8 @@ def incident_guardrail(
         )
     elif mode == "claude_code":
         task_solver = chain(seed_scenario_environment(), claude_code_agent(tools=tools))
+    elif mode == "codex_cli":
+        task_solver = chain(seed_scenario_environment(), codex_cli_agent(tools=tools))
     else:
         raise ValueError(f"Unsupported mode: {mode}")
 

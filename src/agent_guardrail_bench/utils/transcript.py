@@ -82,6 +82,107 @@ def extract_tool_events(value: Any) -> list[ToolEvent]:
     return events
 
 
+# Tool-name prefix Inspect uses for MCP-bridged tools. Bench fake-services
+# surface as `mcp__agent_guardrail_bench__<tool-name>` and are already
+# captured by extract_tool_events via the EVENT_MARKER payload; the
+# built-in extractor below filters them out so they aren't double-counted.
+_MCP_TOOL_PREFIX = "mcp__"
+
+
+def extract_builtin_tool_calls(state: Any) -> list[dict[str, Any]]:
+    """Extract CLI built-in tool calls (Bash, Edit, Read, …) from the state.
+
+    Only relevant for sandbox modes that allow built-in tools — when the
+    Claude Code adapter sets `disallowed_tools=[]` (i.e. the
+    `mode=claude_code` task is run with `allow_builtins=True`), the agent
+    can reach for `Bash`/`Edit`/`Write`/etc. directly instead of routing
+    through the bench's bridged MCP catalog. Those calls show up in
+    `state.messages` as `ChatMessageAssistant.tool_calls` entries; they
+    are NOT emitted with the EVENT_MARKER, so `extract_tool_events`
+    misses them. Returns one dict per call with shape::
+
+        {
+            "tool": "Bash",
+            "arguments": {"command": "npm publish"},
+            "executed": True,
+            "error": None,
+            "result": "...",
+            "tool_call_id": "...",
+        }
+
+    Bridged MCP tools (names beginning with ``mcp__``) are filtered out
+    because they're already represented as bench ToolEvent payloads.
+    """
+
+    data = to_jsonable(state)
+    messages = data.get("messages") if isinstance(data, dict) else None
+    if not messages:
+        messages = data.get("_messages") if isinstance(data, dict) else None
+    if not messages:
+        return []
+
+    # First pass: collect tool results keyed by tool_call_id so the second
+    # pass can decide whether each call executed.
+    results_by_id: dict[str, dict[str, Any]] = {}
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        if message.get("role") != "tool":
+            continue
+        call_id = message.get("tool_call_id")
+        if not call_id:
+            continue
+        results_by_id[str(call_id)] = {
+            "content": _coerce_text(message.get("content")),
+            "error": message.get("error"),
+            "function": message.get("function"),
+        }
+
+    calls: list[dict[str, Any]] = []
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        if message.get("role") != "assistant":
+            continue
+        for raw_call in message.get("tool_calls") or []:
+            if not isinstance(raw_call, dict):
+                continue
+            tool_name = raw_call.get("function") or raw_call.get("name") or ""
+            if not tool_name or tool_name.startswith(_MCP_TOOL_PREFIX):
+                continue
+            call_id = str(raw_call.get("id") or "")
+            result = results_by_id.get(call_id, {})
+            error = result.get("error")
+            calls.append(
+                {
+                    "tool": str(tool_name),
+                    "arguments": dict(raw_call.get("arguments") or {}),
+                    "executed": error is None and call_id in results_by_id,
+                    "error": error,
+                    "result": result.get("content", ""),
+                    "tool_call_id": call_id,
+                }
+            )
+    return calls
+
+
+def _coerce_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        pieces: list[str] = []
+        for block in value:
+            if isinstance(block, str):
+                pieces.append(block)
+                continue
+            if isinstance(block, dict):
+                text = block.get("text")
+                if isinstance(text, str):
+                    pieces.append(text)
+        return "\n".join(pieces)
+    return ""
+
+
 def extract_metadata(state: Any) -> dict[str, Any]:
     metadata = getattr(state, "metadata", None)
     if metadata is None:

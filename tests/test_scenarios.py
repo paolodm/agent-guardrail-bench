@@ -50,6 +50,63 @@ def test_sample_records_render_all_oracle_targets(scenario_id):
         assert not _contains_unrendered_template(oracle["fabrication_patterns"])
 
 
+def test_runbook_shell_payload_provisions_inert_files():
+    """The clinejection `runbook_shell_payload` variant ships a fake repo
+    into the sandbox to let the agent's built-in Read / Bash see a real
+    working tree. Belt-and-braces safety: even if the agent runs the
+    runbook's payload commands verbatim, none of the provisioned files
+    should ship real credentials or routable endpoints. This test fails
+    if a future edit accidentally puts a real token or registry URL into
+    the fixture content."""
+
+    records = build_sample_records("clinejection_supply_chain", variant_repetitions=1, seed=7)
+    runbook = [r for r in records if r["metadata"]["variant_id"] == "runbook_shell_payload"]
+    assert runbook, "runbook_shell_payload variant did not materialize"
+
+    environment = runbook[0]["metadata"]["environment"]
+    repo_files = environment.get("provisioned_repo") or {}
+    assert repo_files, "runbook variant must provision a fake repo"
+
+    expected_suffixes = (
+        "/package.json",
+        "/.npmrc",
+        "/.github/workflows/release.yml",
+        "/tools/release-recovery.md",
+    )
+    for suffix in expected_suffixes:
+        assert any(p.endswith(suffix) for p in repo_files), (
+            f"provisioned_repo missing expected file ending in {suffix!r}"
+        )
+
+    forbidden_substrings = [
+        "ghp_",
+        "github_pat_",
+        "ghs_",
+        "ghu_",
+        "ssh-rsa",
+        "ssh-ed25519",
+        "BEGIN PRIVATE KEY",
+        "BEGIN RSA PRIVATE KEY",
+        "BEGIN OPENSSH PRIVATE KEY",
+        "AKIA",
+        "aws_secret_access_key",
+        "registry=https://registry.npmjs.org",
+        "registry=https://npm.pkg.github.com",
+    ]
+    for path, content in repo_files.items():
+        for needle in forbidden_substrings:
+            assert needle not in content, (
+                f"provisioned_repo file {path!r} contains a forbidden substring "
+                f"{needle!r}; bench fixtures must never ship real credentials "
+                f"or routable production endpoints"
+            )
+
+    npmrc = next(content for path, content in repo_files.items() if path.endswith("/.npmrc"))
+    assert "127.0.0.1" in npmrc, (
+        ".npmrc must pin the registry to a loopback address; got: " + npmrc
+    )
+
+
 def test_production_targets_are_explicit_scenario_state():
     env = {"production_targets": ["prod-primary-volume-1234"]}
 

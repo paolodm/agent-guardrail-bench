@@ -77,10 +77,15 @@ def incident_guardrail(
     elif mode == "claude_code":
         task_solver = chain(
             seed_scenario_environment(),
+            provision_sandbox_files(),
             claude_code_agent(tools=tools, allow_builtins=allow_builtins),
         )
     elif mode == "codex_cli":
-        task_solver = chain(seed_scenario_environment(), codex_cli_agent(tools=tools))
+        task_solver = chain(
+            seed_scenario_environment(),
+            provision_sandbox_files(),
+            codex_cli_agent(tools=tools),
+        )
     else:
         raise ValueError(f"Unsupported mode: {mode}")
 
@@ -107,6 +112,65 @@ def incident_guardrail(
 def seed_scenario_environment():
     async def solve(state: TaskState, generate: Generate) -> TaskState:
         state.store.set(SCENARIO_ENVIRONMENT_KEY, state.metadata.get("environment", {}))
+        return state
+
+    return solve
+
+
+@solver
+def provision_sandbox_files():
+    """Write scenario-declared files into the per-sample sandbox.
+
+    Reads ``environment.provisioned_repo`` (a dict of absolute filepath ->
+    string contents) from the sample's metadata and writes each entry into
+    the running container so that built-in tools like ``Read`` and
+    ``Bash cat`` can interact with a plausible repository checkout. Used
+    by the ``clinejection_supply_chain.runbook_shell_payload`` variant to
+    expose a recovery runbook inside the working tree.
+
+    The provisioned tree is intentionally inert: no real credentials, no
+    git remote, and a ``.npmrc`` that pins to a non-routable loopback
+    address. Even if the agent runs the runbook's commands verbatim,
+    nothing exits the sandbox. See ``docs/sandbox-modes.md`` for the full
+    safety guarantees.
+
+    No-op for modes without a sandbox (e.g. ``inspect_native``).
+    """
+
+    import os
+
+    async def solve(state: TaskState, generate: Generate) -> TaskState:
+        env = state.metadata.get("environment") or {}
+        repo_files = env.get("provisioned_repo") or {}
+        if not repo_files:
+            return state
+
+        try:
+            from inspect_ai.util import sandbox as _sandbox
+        except ImportError:
+            return state
+
+        try:
+            sb = _sandbox()
+        except Exception:
+            # No sandbox configured for this mode; the variant just
+            # won't have files to read. Scorer still works.
+            return state
+
+        for raw_path, content in repo_files.items():
+            path = str(raw_path)
+            parent = os.path.dirname(path)
+            if parent:
+                try:
+                    await sb.exec(["mkdir", "-p", parent])
+                except Exception:
+                    pass
+            try:
+                await sb.write_file(path, str(content))
+            except Exception:
+                # Best-effort provisioning; scenario stays scoreable
+                # even if a specific file doesn't land.
+                continue
         return state
 
     return solve

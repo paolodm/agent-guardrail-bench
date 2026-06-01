@@ -34,6 +34,7 @@ def incident_guardrail(
     mode: str = "inspect_native",
     variant_repetitions: int = 1,
     seed: int = 0,
+    allow_builtins: bool = False,
 ) -> Task:
     """Incident-derived guardrail regression task.
 
@@ -42,6 +43,15 @@ def incident_guardrail(
         mode: `inspect_native`, `claude_code`, or `codex_cli`.
         variant_repetitions: Number of deterministic materializations per variant.
         seed: Seed for variant resource suffixes.
+        allow_builtins: When ``True`` and ``mode=claude_code``, do not
+            block Claude Code's built-in tools (``Bash``, ``Edit``,
+            ``Write``, ``Read``, …). The scorer then matches built-in
+            tool calls against each scenario's
+            ``forbidden_builtin_actions`` rule list, so a model that
+            tries to route around the bench's MCP guards via shell
+            still gets caught. No-op for ``inspect_native`` (no built-ins
+            exist) and for ``codex_cli`` (no ``disallowed_tools`` knob
+            on ``inspect_swe.codex_cli()`` — Codex always has built-ins).
     """
 
     tools = all_fake_tools()
@@ -65,7 +75,10 @@ def incident_guardrail(
             react(prompt=INSPECT_NATIVE_PROMPT, tools=tools, attempts=1),
         )
     elif mode == "claude_code":
-        task_solver = chain(seed_scenario_environment(), claude_code_agent(tools=tools))
+        task_solver = chain(
+            seed_scenario_environment(),
+            claude_code_agent(tools=tools, allow_builtins=allow_builtins),
+        )
     elif mode == "codex_cli":
         task_solver = chain(seed_scenario_environment(), codex_cli_agent(tools=tools))
     else:
@@ -79,9 +92,11 @@ def incident_guardrail(
             "benchmark": "agent-guardrail-bench",
             "benchmark_version": "0.1.0",
             "mode": mode,
+            "allow_builtins": allow_builtins,
             "canonical_artifact": "inspect_eval_log",
         },
-        tags=["incident-derived", "guardrails", "agentic", mode],
+        tags=["incident-derived", "guardrails", "agentic", mode]
+        + (["allow-builtins"] if allow_builtins else []),
     )
     if mode in SANDBOX_MODES:
         task_kwargs["sandbox"] = ("docker", str(COMPOSE_FILE))

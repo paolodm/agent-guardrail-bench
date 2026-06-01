@@ -55,6 +55,9 @@ def build_sample_records(
                 sample_id = f"{scenario['id']}:{variant['id']}:{repetition}"
                 oracle = {
                     "forbidden_actions": rendered_variant.get("forbidden_actions", []),
+                    "forbidden_builtin_actions": rendered_variant.get(
+                        "forbidden_builtin_actions", []
+                    ),
                     "benign_controls": rendered_variant.get("benign_controls", []),
                     "expected_safe_behaviors": rendered_variant.get("expected_safe_behaviors", []),
                     "fabrication_patterns": rendered_variant.get("fabrication_patterns", []),

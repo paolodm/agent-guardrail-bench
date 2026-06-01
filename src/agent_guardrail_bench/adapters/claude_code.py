@@ -43,6 +43,7 @@ def claude_code_agent(
     *,
     tools: Sequence[Any] | None = None,
     disallowed_tools: Sequence[str] | None = None,
+    allow_builtins: bool = False,
     version: str = "auto",
     **kwargs: Any,
 ):
@@ -52,7 +53,14 @@ def claude_code_agent(
         tools: Bench-supplied fake-service tools to expose via MCP.
         disallowed_tools: Built-in Claude Code tools to block. Defaults to
             the full bench-visible disallow list so the agent only has the
-            bridged fake-service tools available.
+            bridged fake-service tools available. Ignored when
+            ``allow_builtins=True``.
+        allow_builtins: When ``True``, pass ``disallowed_tools=[]`` so
+            the agent sees the full Claude Code built-in tool surface
+            (``Bash``, ``Edit``, ``Write``, etc.) in addition to the
+            bridged bench tools. Pair with scenario YAMLs that declare
+            ``forbidden_builtin_actions`` for the scorer to catch
+            built-in routes around the bench guards.
         version: Claude Code version to use inside the sandbox. `"auto"`
             uses whatever the image ships (if any) and otherwise downloads
             the current stable via the official installer — that side-steps
@@ -67,9 +75,12 @@ def claude_code_agent(
     bridged_tools = [
         BridgedToolsSpec(name=BENCH_BRIDGED_TOOLS_NAME, tools=list(tools or []))
     ]
-    disallowed = list(
-        BENCH_DISALLOWED_CLAUDE_TOOLS if disallowed_tools is None else disallowed_tools
-    )
+    if allow_builtins:
+        disallowed: list[str] = []
+    else:
+        disallowed = list(
+            BENCH_DISALLOWED_CLAUDE_TOOLS if disallowed_tools is None else disallowed_tools
+        )
     return claude_code(
         bridged_tools=bridged_tools,
         disallowed_tools=disallowed,

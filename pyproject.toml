@@ -12,6 +12,7 @@ license = { text = "MIT" }
 authors = [{ name = "Agent Guardrail Bench maintainers" }]
 dependencies = [
   "inspect-ai>=0.3.224,<0.4",
+  "inspect-swe>=0.2.57",
   "pyyaml>=6.0.1",
 ]
 

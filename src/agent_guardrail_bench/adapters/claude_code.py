@@ -1,56 +1,78 @@
-"""Claude Code adapter scaffold for Inspect Sandbox Agent Bridge runs."""
+"""Claude Code adapter for Inspect Sandbox Agent Bridge runs.
+
+Thin wrapper over `inspect_swe.claude_code()` — the maintained Inspect SWE
+agent. It handles the bridge proxy, MCP server registration for bridged
+tools, and Claude Code installation inside the sandbox so the bench only
+has to declare which fake-service tools should be visible to the agent.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from typing import Any
 
-from agent_guardrail_bench.adapters.base import bridge_env, maybe_await, render_command
+# Built-in Claude Code tools the bench disallows so the agent can only act
+# through the fake-service MCP tools the bridge exposes. Without this list
+# the agent reaches for `Read`/`Bash`/`Edit`/etc. first and never invokes
+# the bench surface, which masks both forbidden-action and benign-control
+# signal.
+BENCH_DISALLOWED_CLAUDE_TOOLS: tuple[str, ...] = (
+    "Bash",
+    "BashOutput",
+    "Edit",
+    "ExitPlanMode",
+    "Glob",
+    "Grep",
+    "KillBash",
+    "MultiEdit",
+    "NotebookEdit",
+    "Read",
+    "Task",
+    "TodoWrite",
+    "WebFetch",
+    "WebSearch",
+    "Write",
+)
 
-DEFAULT_CLAUDE_CODE_COMMAND = ("claude", "-p", "{prompt}")
+# Bridged-tools MCP server name. Surfaces to the agent as
+# `mcp__agent_guardrail_bench__<tool-name>`.
+BENCH_BRIDGED_TOOLS_NAME = "agent_guardrail_bench"
 
 
 def claude_code_agent(
     *,
     tools: Sequence[Any] | None = None,
-    command: Sequence[str] = DEFAULT_CLAUDE_CODE_COMMAND,
+    disallowed_tools: Sequence[str] | None = None,
+    version: str = "auto",
+    **kwargs: Any,
 ):
-    """Return an Inspect Agent that invokes Claude Code inside the sandbox.
+    """Return an Inspect Agent that runs Claude Code inside the sandbox.
 
-    The sandbox image is expected to install `claude` and configure it to use the
-    Anthropic-compatible proxy exposed by `sandbox_agent_bridge`.
+    Args:
+        tools: Bench-supplied fake-service tools to expose via MCP.
+        disallowed_tools: Built-in Claude Code tools to block. Defaults to
+            the full bench-visible disallow list so the agent only has the
+            bridged fake-service tools available.
+        version: Claude Code version to use inside the sandbox. `"auto"`
+            uses whatever the image ships (if any) and otherwise downloads
+            the current stable via the official installer — that side-steps
+            the deprecated npm install path.
+        **kwargs: Forwarded to `inspect_swe.claude_code()` (e.g.
+            `system_prompt`, `attempts`, `model`, `env`).
     """
 
-    from inspect_ai.agent import Agent, AgentState, BridgedToolsSpec, agent, sandbox_agent_bridge
-    from inspect_ai.model import user_prompt
-    from inspect_ai.util import sandbox
+    from inspect_ai.agent import BridgedToolsSpec
+    from inspect_swe import claude_code
 
-    @agent
-    def _claude_code_agent() -> Agent:
-        async def execute(state: AgentState) -> AgentState:
-            bridged_tools = [
-                BridgedToolsSpec(name="agent_guardrail_bench", tools=list(tools or []))
-            ]
-            async with sandbox_agent_bridge(
-                state,
-                model="inspect",
-                bridged_tools=bridged_tools,
-            ) as bridge:
-                prompt = user_prompt(state.messages)
-                result = await maybe_await(
-                    sandbox().exec(
-                        cmd=render_command(command, prompt.text),
-                        env=bridge_env(
-                            bridge=bridge,
-                            provider="anthropic",
-                            mcp_server_configs=bridge.mcp_server_configs,
-                        ),
-                    )
-                )
-                if not result.success:
-                    raise RuntimeError(f"Claude Code failed: {result.stderr}")
-                return bridge.state
-
-        return execute
-
-    return _claude_code_agent()
+    bridged_tools = [
+        BridgedToolsSpec(name=BENCH_BRIDGED_TOOLS_NAME, tools=list(tools or []))
+    ]
+    disallowed = list(
+        BENCH_DISALLOWED_CLAUDE_TOOLS if disallowed_tools is None else disallowed_tools
+    )
+    return claude_code(
+        bridged_tools=bridged_tools,
+        disallowed_tools=disallowed,
+        version=version,
+        **kwargs,
+    )

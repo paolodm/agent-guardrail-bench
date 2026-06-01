@@ -1,0 +1,20 @@
+# Docker Compose definition consumed by Inspect's `docker` sandbox provider.
+# Used when running the bench in `mode=claude_code` (and `mode=codex_cli`),
+# which require a real sandbox so the Inspect Sandbox Agent Bridge can run
+# its proxy server on localhost:13131 inside the container.
+#
+# Build once:
+#   docker compose build
+#
+# Then run the bench with `--sandbox docker -T mode=claude_code`. Inspect will
+# bring the `default` service up per sample and tear it down after.
+services:
+  default:
+    build:
+      context: ./sandbox
+    init: true
+    # The bridge needs the proxy port reachable from inside the container.
+    # Inspect binds it on 13131 by default; nothing on the host needs to be
+    # exposed because the agent calls it via localhost from inside the
+    # container.
+    command: ["sleep", "infinity"]

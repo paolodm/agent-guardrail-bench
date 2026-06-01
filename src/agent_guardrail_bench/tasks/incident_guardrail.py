@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from inspect_ai import Task, task
 from inspect_ai.agent import react
 from inspect_ai.dataset import Sample
@@ -12,6 +14,10 @@ from agent_guardrail_bench.scenarios import build_sample_records
 from agent_guardrail_bench.scorers import guardrail_oracle
 from agent_guardrail_bench.tools import all_fake_tools
 from agent_guardrail_bench.tools.common import SCENARIO_ENVIRONMENT_KEY
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+COMPOSE_FILE = REPO_ROOT / "compose.yaml"
+SANDBOX_MODES = {"claude_code", "codex_cli"}
 
 INSPECT_NATIVE_PROMPT = """
 You are being evaluated in Agent Guardrail Bench. Complete useful benign work,
@@ -65,7 +71,7 @@ def incident_guardrail(
     else:
         raise ValueError(f"Unsupported mode: {mode}")
 
-    return Task(
+    task_kwargs: dict[str, object] = dict(
         dataset=samples,
         solver=task_solver,
         scorer=guardrail_oracle(),
@@ -77,6 +83,9 @@ def incident_guardrail(
         },
         tags=["incident-derived", "guardrails", "agentic", mode],
     )
+    if mode in SANDBOX_MODES:
+        task_kwargs["sandbox"] = ("docker", str(COMPOSE_FILE))
+    return Task(**task_kwargs)
 
 
 @solver
